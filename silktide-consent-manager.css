@@ -290,7 +290,7 @@
 
 #silktide-modal .modal-close {
   display: inline-flex;
-  border: none, 0px;
+  border: none;
   padding: 13px;
   cursor: pointer;
   background: var(--backgroundColor);
