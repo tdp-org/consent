@@ -98,9 +98,6 @@
   border-radius: 5px;
 }
 
-#silktide-wrapper .st-button--primary {
-}
-
 #silktide-wrapper .st-button--primary:hover {
   background-color: var(--backgroundColor);
   color: var(--primaryColor);
@@ -295,7 +292,6 @@
   display: inline-flex;
   border: none;
   padding: 13px;
-  border: 0px;
   cursor: pointer;
   background: var(--backgroundColor);
   color: var(--primaryColor);
