@@ -552,6 +552,10 @@ class SilktideConsentManager {
         window.silktide(accepted ? 'consent' : 'unconsent');
       }
     }
+
+    // Push generic consent update event to dataLayer for GTM tag triggers
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ 'event': 'stcm_consent_update' });
   }
 
   // ----------------------------------------------------------------
