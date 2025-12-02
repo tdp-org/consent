@@ -621,7 +621,7 @@ class SilktideConsentManager {
     if (Object.keys(gtagConsentUpdate).length > 0 && typeof gtag === 'function') {
       gtag('consent', 'update', gtagConsentUpdate);
       if (this.config.debug) {
-        console.log('%c✓ gtag consent updated (from user action):', 'color: #4CAF50; font-weight: bold', gtagConsentUpdate);
+        console.log('✓ gtag consent updated (from user action):', gtagConsentUpdate);
       }
     } else if (gtagConsentUpdate.analytics_storage) {
       // Silktide Analytics fallback
@@ -635,7 +635,7 @@ class SilktideConsentManager {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ 'event': this.config.eventName });
     if (this.config.debug) {
-      console.log('%c▶ GTM Event Sent: ' + this.config.eventName + ' (from user action)', 'color: #FF8C00; font-weight: bold; font-size: 14px');
+      console.log('▶ GTM Event Sent: ' + this.config.eventName + ' (from user action)');
     }
 
     // Third pass: run callbacks and inject scripts
@@ -802,7 +802,7 @@ class SilktideConsentManager {
     if (hasGtagUpdates && typeof gtag === 'function') {
       gtag('consent', 'update', gtagConsentUpdate);
       if (this.config.debug) {
-        console.log('%c✓ gtag consent updated (on page load):', 'color: #4CAF50; font-weight: bold', gtagConsentUpdate);
+        console.log('✓ gtag consent updated (on page load):', gtagConsentUpdate);
       }
     } else if (gtagConsentUpdate.analytics_storage && typeof window.silktide === 'function') {
       // Silktide Analytics fallback
@@ -818,7 +818,7 @@ class SilktideConsentManager {
       window.dataLayer.push({ 'event': this.config.eventName });
       if (this.config.debug) {
         const eventContext = isFirstConsentLoad ? 'from first page load' : 'from return visit';
-        console.log('%c▶ GTM Event Sent: ' + this.config.eventName + ' (' + eventContext + ')', 'color: #FF8C00; font-weight: bold; font-size: 14px');
+        console.log('▶ GTM Event Sent: ' + this.config.eventName + ' (' + eventContext + ')');
       }
     }
   }
@@ -1118,21 +1118,7 @@ class SilktideConsentManager {
 
       this.updateCheckboxState(false); // read from storage when opening
     } else {
-      // Set that an initial choice was made when closing the modal
-      this.setHasConsented();
-
-      // Save current checkbox states to storage
-      this.updateCheckboxState(true);
-
-      // Reload page if consent was revoked and scripts were injected
-      if (this._needsReload) {
-        this._needsReload = false;
-        setTimeout(() => {
-          window.location.reload();
-        }, 100);
-        return;
-      }
-
+      // Close the modal without saving anything - saving is handled by the "Save and Close" and "Reject All" buttons only
       this.hideBackdrop();
       this.showCookieIcon();
       this.allowBodyScroll();
