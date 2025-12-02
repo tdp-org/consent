@@ -1010,10 +1010,10 @@ class SilktideConsentManager {
     const consentTypes = this.config.consentTypes || [];
     const acceptedConsentMap = this.getAcceptedConsents();
 
-    // Save and Close button (formerly Accept All button for modal)
+    // Save button
     const saveButtonText = this.config.text?.preferences?.saveButtonText || 'Save and close';
     const saveButtonLabel = this.config.text?.preferences?.saveButtonAccessibleLabel;
-    const saveAndCloseButton = `<button class="stcm-modal-save-and-close stcm-button stcm-button-primary"${
+    const saveButton = `<button class="stcm-modal-save stcm-button stcm-button-primary"${
       saveButtonLabel && saveButtonLabel !== saveButtonText
         ? ` aria-label="${saveButtonLabel}"`
         : ''
@@ -1082,7 +1082,7 @@ class SilktideConsentManager {
           .join('')}
       </section>
       <footer>
-        ${saveAndCloseButton}
+        ${saveButton}
         ${rejectNonEssentialButton}
         ${creditLink}
       </footer>
@@ -1290,7 +1290,7 @@ class SilktideConsentManager {
     // Check Preferences exists before trying to add event listeners
     if (this.preferences) {
       const closeButton = this.preferences.querySelector('.stcm-modal-close');
-      const saveAndCloseButton = this.preferences.querySelector('.stcm-modal-save-and-close');
+      const saveButton = this.preferences.querySelector('.stcm-modal-save');
       const rejectAllButton = this.preferences.querySelector('.stcm-modal-reject-all');
 
       // Close button - only closes modal, doesn't save or fire events
@@ -1302,8 +1302,8 @@ class SilktideConsentManager {
         // Otherwise, just close without doing anything
       });
 
-      // Save and Close button - reads checkbox states and batch updates
-      saveAndCloseButton?.addEventListener('click', () => {
+      // Save button - reads checkbox states and batch updates
+      saveButton?.addEventListener('click', () => {
         // We set that an initial choice was made
         this.setHasConsented();
 

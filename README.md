@@ -91,6 +91,16 @@ An array of consent type objects. Each object may include:
 - `onAccept` (function): Callback triggered when consent is granted
 - `onReject` (function): Callback triggered when consent is rejected
 
+#### `eventName`
+
+If you're using Google Tag Manager, the consent manager fires a custom event to the dataLayer whenever consent changes. By default, this event is called `stcm_consent_update`, but you can override it:
+
+```javascript
+eventName: 'my_custom_consent_event'
+```
+
+If you're not using Google Tag Manager, you can ignore this option.
+
 #### `text`
 
 Customize all text displayed to users:
@@ -109,6 +119,8 @@ text: {
   preferences: {
     title: 'Customize your preferences',
     description: '<p>Choose which cookies you want to accept.</p>',
+    saveButtonText: 'Save and close',
+    saveButtonAccessibleLabel: 'Save your cookie preferences',
     creditLinkText: 'Get this consent manager for free',
     creditLinkAccessibleLabel: 'Visit Silktide Consent Manager',
   },
@@ -149,6 +161,7 @@ backdrop: {
 
 - `autoShow` (boolean): Whether to automatically show the prompt on first visit (default: true)
 - `namespace` (string): Namespace for localStorage keys to support multiple consent managers on one domain
+- `debug` (boolean): Enable console logging for GTM events and consent updates (default: false)
 - `onAcceptAll` (function): Callback when user accepts all consent types
 - `onRejectAll` (function): Callback when user rejects all non-essential consent types
 - `onPromptOpen` (function): Callback when consent prompt is shown
@@ -190,7 +203,11 @@ Scripts will only be injected once when consent is granted. If consent is later 
 
 ## Google Tag Manager Integration
 
-The consent manager automatically integrates with Google Tag Manager consent mode:
+The consent manager automatically integrates with Google Tag Manager in two ways:
+
+### 1. Consent Mode Updates
+
+When consent changes, the manager automatically calls `gtag('consent', 'update', {...})`:
 
 ```javascript
 {
@@ -207,7 +224,33 @@ The consent manager automatically integrates with Google Tag Manager consent mod
 }
 ```
 
-When consent changes, the manager automatically calls `gtag('consent', 'update', {...})`.
+### 2. Custom Event for Tag Triggers
+
+The consent manager fires a single custom event to GTM's dataLayer whenever consent changes:
+
+```javascript
+window.dataLayer.push({ 'event': 'stcm_consent_update' });
+```
+
+This event fires when:
+- User accepts or rejects consent from the innitial prompt
+- User changes and saves preferences in the modal
+- Page loads with existing granted consents
+
+**Setting up GTM tags:**
+
+1. In Google Tag Manager, create a Custom Event trigger
+2. Set event name to `stcm_consent_update` (or your custom `eventName`)
+3. Configure your tags (GA4, Google Ads, etc.) to fire on this trigger
+
+You can customize the event name:
+
+```javascript
+window.silktideConsentManager.init({
+  eventName: 'my_custom_consent_event',
+  consentTypes: [/* ... */]
+});
+```
 
 ## API Methods
 
@@ -268,6 +311,7 @@ The consent manager uses CSS variables for easy customization. Override these in
   --primaryColor: #533BE2;
   --backgroundColor: #FFFFFF;
   --textColor: #253B48;
+  --boxShadow: -5px 5px 10px 0px #00000012, 0px 0px 50px 0px #0000001a;
   --backdropBackgroundColor: #00000077;
   --backdropBackgroundBlur: 5px;
   --iconColor: #533BE2;
