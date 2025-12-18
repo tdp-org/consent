@@ -1,17 +1,18 @@
-# Silktide Consent Manager
+# Silktide Consent Manager v2.0
 
-A free, lightweight and customizable consent manager/cookie banner for websites, designed to help you comply with GDPR and other privacy regulations.
+A free, lightweight and customizable consent manager for websites, designed to help you comply with GDPR and other privacy regulations.
 
 [Learn more](https://silktide.com/consent-manager/) or [Configure it with our wizard](https://silktide.com/consent-manager/install/)
 
 ## Features
 
-- **Customizable Design**: Easily customize the appearance of the banner and modal to match your website's design.
-- **Multiple Positioning Options**: Choose from different positions for the banner and cookie icon (e.g., bottom-right, bottom-left, center).
-- **Granular Cookie Control**: Allow users to accept or reject different types of cookies (e.g., essential, analytics, marketing).
-- **Event Callbacks**: Trigger custom JavaScript functions when users accept or reject cookies.
-- **Accessibility**: Fully accessible with keyboard navigation and ARIA labels.
-- **Responsive Design**: Works seamlessly on all devices, from mobile to desktop.
+- **Customizable Design**: Easily customize the appearance to match your website's design
+- **Multiple Positioning Options**: Choose from different positions for the prompt and icon
+- **Granular Consent Control**: Allow users to accept or reject different types of consent (essential, analytics, marketing, etc.)
+- **Automatic Script Injection**: Automatically load third-party scripts when consent is granted
+- **Analytics Integration**: Built-in support for Google Tag Manager and Silktide Analytics
+- **Event Callbacks**: Trigger custom JavaScript functions when users accept or reject consent
+- **Accessibility**: Fully accessible with keyboard navigation, focus traps, and ARIA labels
 
 ## Installation
 
@@ -20,9 +21,9 @@ To use the Silktide Consent Manager, include the following files in your project
 1. **JavaScript File**: `silktide-consent-manager.js`
 2. **CSS File**: `silktide-consent-manager.css`
 
-You can either download these files and host them yourself.
+You can either download these files and host them yourself, or use a CDN.
 
-### Example HTML
+### Basic Example
 
 ```html
 <!DOCTYPE html>
@@ -36,62 +37,36 @@ You can either download these files and host them yourself.
 <body>
   <script src="path/to/silktide-consent-manager.js"></script>
   <script>
-    // Initialize the consent manager with your configuration
-    silktideCookieBannerManager.updateCookieBannerConfig({
-      cookieTypes: [
+    // Initialize the consent manager
+    window.silktideConsentManager.init({
+      consentTypes: [
         {
           id: 'essential',
-          name: 'Essential Cookies',
-          description: 'These cookies are necessary for the website to function and cannot be switched off.',
+          label: 'Essential',
+          description: 'These are necessary for the website to function and cannot be switched off.',
           required: true,
-          defaultValue: true,
         },
         {
           id: 'analytics',
-          name: 'Analytics Cookies',
-          description: 'These cookies help us understand how visitors interact with the website.',
+          label: 'Analytics',
+          description: 'These help us understand how visitors interact with the website.',
           defaultValue: true,
-          onAccept: function() {
-            console.log('Analytics cookies accepted');
-          },
-          onReject: function() {
-            console.log('Analytics cookies rejected');
-          },
+          gtag: 'analytics_storage', // Automatic Google Tag Manager / Silktide Analytics integration
         },
         {
           id: 'marketing',
-          name: 'Marketing Cookies',
-          description: 'These cookies are used to deliver personalized ads.',
+          label: 'Marketing',
+          description: 'These are used to deliver personalized advertisements.',
           defaultValue: false,
+          gtag: ['ad_storage', 'ad_user_data', 'ad_personalization'],
           onAccept: function() {
-            console.log('Marketing cookies accepted');
+            console.log('Marketing accepted');
           },
           onReject: function() {
-            console.log('Marketing cookies rejected');
+            console.log('Marketing rejected');
           },
         },
       ],
-      text: {
-        banner: {
-          description: `<p>We use cookies to enhance your experience. By continuing to visit this site, you agree to our use of cookies.</p>`,
-          acceptAllButtonText: 'Accept all',
-          acceptAllButtonAccessibleLabel: 'Accept all cookies',
-          rejectNonEssentialButtonText: 'Reject non-essential',
-          rejectNonEssentialButtonAccessibleLabel: 'Reject non-essential',
-          preferencesButtonText: 'Preferences',
-          preferencesButtonAccessibleLabel: 'Toggle preferences',
-        },
-        preferences: {
-          title: "Customize your cookie preferences",
-          description: `<p>We respect your right to privacy. You can choose not to allow some types of cookies. Your cookie preferences will apply across our website.</p>`,
-          creditLinkText: 'Get this banner for free',
-          creditLinkAccessibleLabel: 'Get this banner for free',
-        },
-      },
-      position: {
-        banner: 'bottomRight', // Options: 'bottomRight', 'bottomLeft', 'center', 'bottomCenter'
-        cookieIcon: 'bottomLeft', // Options: 'bottomRight', 'bottomLeft'
-      },
     });
   </script>
 </body>
@@ -100,74 +75,258 @@ You can either download these files and host them yourself.
 
 ## Configuration Options
 
-The consent manager can be customized using the following configuration options:
+### Core Configuration
 
-### `cookieTypes`
+#### `consentTypes` (required)
 
-An array of objects defining the different types of cookies. Each object should include:
+An array of consent type objects. Each object may include:
 
-- `id`: A unique identifier for the cookie type
-- `name`: The name of the cookie type (displayed to the user)
-- `description`: A description of the cookie type (displayed to the user)
-- `required`: Whether the cookie is essential and cannot be rejected
-- `defaultValue`: The default state of the cookie (true for accepted, false for rejected)
-- `onAccept`: A callback function triggered when the cookie is accepted
-- `onReject`: A callback function triggered when the cookie is rejected
+- `id` (string, required): Unique identifier for the consent type
+- `label` (string, required): Display name shown to users
+- `description` (string, required): Description shown in the preferences modal
+- `required` (boolean): Whether this consent is essential and cannot be rejected (default: false)
+- `defaultValue` (boolean): Default state when user hasn't made a choice (default: false)
+- `gtag` (string or array): Google Tag Manager consent parameter(s) to update automatically
+- `scripts` (array): Scripts to inject when consent is granted (see Script Injection below)
+- `onAccept` (function): Callback triggered when consent is granted
+- `onReject` (function): Callback triggered when consent is rejected
 
-### `text`
+#### `eventName`
 
-An object containing text strings used in the banner and preferences modal:
+If you're using Google Tag Manager, the consent manager fires a custom event to the dataLayer whenever consent changes. By default, this event is called `stcm_consent_update`, but you can override it:
 
-#### `banner`
-- `description`: Main text content for the banner
-- `acceptAllButtonText`: Text for the accept all button
-- `acceptAllButtonAccessibleLabel`: Accessibility label for accept all button
-- `rejectNonEssentialButtonText`: Text for reject button
-- `rejectNonEssentialButtonAccessibleLabel`: Accessibility label for reject button
-- `preferencesButtonText`: Text for preferences button
-- `preferencesButtonAccessibleLabel`: Accessibility label for preferences button
-
-#### `preferences`
-- `title`: Title text for the preferences modal
-- `description`: Description text for the preferences modal
-- `creditLinkText`: Text for the credit link
-- `creditLinkAccessibleLabel`: Accessibility label for credit link
-
-### `position`
-
-An object defining the position of the banner and cookie icon:
-
-- `banner`: Position of the banner (options: `bottomRight`, `bottomLeft`, `center`, `bottomCenter`)
-- `cookieIcon`: Position of the cookie icon (options: `bottomRight`, `bottomLeft`)
-
-### Callbacks
-
-- `onAcceptAll`: A callback function triggered when the user clicks "Accept All"
-- `onRejectAll`: A callback function triggered when the user clicks "Reject Non-Essential"
-
-
-## Styling
-The consent manager comes with a default set of styles, but you can easily customize them by overriding the CSS variables at the top of the `silktide-consent-manager.css` file.
-
-The following variables are scoped to `#silktide-wrapper` to prevent them from being overridden by styles coming from the site the consent manager is used on:
-
-```css
---focus: 0 0 0 2px #ffffff, 0 0 0 4px #000000, 0 0 0 6px #ffffff;
---boxShadow: -5px 5px 10px 0px #00000012, 0px 0px 50px 0px #0000001a;
---fontFamily: Helvetica Neue, Segoe UI, Arial, sans-serif;
---primaryColor: #533BE2; /* Primary color for buttons and links */
---backgroundColor: #FFFFFF; /* Background color for the banner and modal */
---textColor: #253B48; /* Text color */
---backdropBackgroundColor: #00000033; /* Backdrop background color */
---backdropBackgroundBlur: 0px; /* Backdrop blur effect amount */
---cookieIconColor: #533BE2; /* Cookie icon color */
---cookieIconBackgroundColor: #FFFFFF; /* Cookie icon background color */
+```javascript
+eventName: 'my_custom_consent_event'
 ```
 
+If you're not using Google Tag Manager, you can ignore this option.
+
+#### `text`
+
+Customize all text displayed to users:
+
+```javascript
+text: {
+  prompt: {
+    description: '<p>We use cookies to enhance your experience.</p>',
+    acceptAllButtonText: 'Accept all',
+    acceptAllButtonAccessibleLabel: 'Accept all cookies',
+    rejectNonEssentialButtonText: 'Reject non-essential',
+    rejectNonEssentialButtonAccessibleLabel: 'Reject all non-essential cookies',
+    preferencesButtonText: 'Preferences',
+    preferencesButtonAccessibleLabel: 'Manage cookie preferences',
+  },
+  preferences: {
+    title: 'Customize your preferences',
+    description: '<p>Choose which cookies you want to accept.</p>',
+    saveButtonText: 'Save and close',
+    saveButtonAccessibleLabel: 'Save your cookie preferences',
+    creditLinkText: 'Get this consent manager for free',
+    creditLinkAccessibleLabel: 'Visit Silktide Consent Manager',
+  },
+}
+```
+
+#### `prompt`
+
+Configure the initial consent prompt:
+
+```javascript
+prompt: {
+  position: 'bottomRight' // Options: 'center', 'bottomLeft', 'bottomCenter', 'bottomRight'
+}
+```
+
+#### `icon`
+
+Configure the cookie icon that appears after initial consent:
+
+```javascript
+icon: {
+  position: 'bottomLeft' // Options: 'bottomLeft', 'bottomRight'
+}
+```
+
+#### `backdrop`
+
+Configure the backdrop shown behind the prompt/modal:
+
+```javascript
+backdrop: {
+  show: true // Show a backdrop behind the consent prompt (default: false)
+}
+```
+
+#### Other Options
+
+- `autoShow` (boolean): Whether to automatically show the prompt on first visit (default: true)
+- `namespace` (string): Namespace for localStorage keys to support multiple consent managers on one domain
+- `debug` (boolean): Enable console logging for GTM events and consent updates (default: false)
+- `onAcceptAll` (function): Callback when user accepts all consent types
+- `onRejectAll` (function): Callback when user rejects all non-essential consent types
+- `onPromptOpen` (function): Callback when consent prompt is shown
+- `onPromptClose` (function): Callback when consent prompt is closed
+- `onPreferencesOpen` (function): Callback when preferences modal is opened
+- `onPreferencesClose` (function): Callback when preferences modal is closed
+- `onBackdropOpen` (function): Callback when backdrop is shown
+- `onBackdropClose` (function): Callback when backdrop is hidden
+
+## Script Injection
+
+Automatically load third-party scripts when consent is granted:
+
+```javascript
+{
+  id: 'analytics',
+  label: 'Analytics',
+  description: 'Google Analytics tracking',
+  scripts: [
+    {
+      url: 'https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID',
+      load: 'async', // Options: 'async', 'defer', or omit for default
+      type: 'text/javascript',
+      crossorigin: 'anonymous',
+      integrity: 'sha384-...' // Optional SRI hash
+    }
+  ],
+  onAccept: function() {
+    // Initialize analytics
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'GA_MEASUREMENT_ID');
+  }
+}
+```
+
+Scripts will only be injected once when consent is granted. If consent is later revoked, the page will automatically reload to remove the scripts.
+
+## Google Tag Manager Integration
+
+The consent manager automatically integrates with Google Tag Manager in two ways:
+
+### 1. Consent Mode Updates
+
+When consent changes, the manager automatically calls `gtag('consent', 'update', {...})`:
+
+```javascript
+{
+  id: 'analytics',
+  label: 'Analytics',
+  description: 'Analytics tracking',
+  gtag: 'analytics_storage', // Single parameter
+},
+{
+  id: 'marketing',
+  label: 'Marketing',
+  description: 'Advertising and marketing',
+  gtag: ['ad_storage', 'ad_user_data', 'ad_personalization'], // Multiple parameters
+}
+```
+
+### 2. Custom Event for Tag Triggers
+
+The consent manager fires a single custom event to GTM's dataLayer whenever consent changes:
+
+```javascript
+window.dataLayer.push({ 'event': 'stcm_consent_update' });
+```
+
+This event fires when:
+- User accepts or rejects consent from the innitial prompt
+- User changes and saves preferences in the modal
+- Page loads with existing granted consents
+
+**Setting up GTM tags:**
+
+1. In Google Tag Manager, create a Custom Event trigger
+2. Set event name to `stcm_consent_update` (or your custom `eventName`)
+3. Configure your tags (GA4, Google Ads, etc.) to fire on this trigger
+
+You can customize the event name:
+
+```javascript
+window.silktideConsentManager.init({
+  eventName: 'my_custom_consent_event',
+  consentTypes: [/* ... */]
+});
+```
+
+## API Methods
+
+### `init(config)`
+
+Initialize the consent manager with a configuration object:
+
+```javascript
+window.silktideConsentManager.init({
+  consentTypes: [/* ... */],
+  // ... other options
+});
+```
+
+### `update(partialConfig)`
+
+Update the configuration by merging with existing config:
+
+```javascript
+window.silktideConsentManager.update({
+  text: {
+    prompt: {
+      description: '<p>New description</p>'
+    }
+  }
+});
+```
+
+### `resetConsent()`
+
+Clear all consent choices and show the prompt again:
+
+```javascript
+window.silktideConsentManager.resetConsent();
+```
+
+### `getInstance()`
+
+Get the current consent manager instance for advanced usage:
+
+```javascript
+const manager = window.silktideConsentManager.getInstance();
+
+// Access consent choices
+const analyticsConsent = manager.getConsentChoice('analytics'); // true, false, or null
+
+// Get all accepted consents
+const accepted = manager.getAcceptedConsents(); // { essential: true, analytics: true, ... }
+```
+
+## Styling
+
+The consent manager uses CSS variables for easy customization. Override these in your own stylesheet:
+
+```css
+#stcm-wrapper {
+  --fontFamily: 'Your Font', sans-serif;
+  --primaryColor: #533BE2;
+  --backgroundColor: #FFFFFF;
+  --textColor: #253B48;
+  --boxShadow: -5px 5px 10px 0px #00000012, 0px 0px 50px 0px #0000001a;
+  --backdropBackgroundColor: #00000077;
+  --backdropBackgroundBlur: 5px;
+  --iconColor: #533BE2;
+  --iconBackgroundColor: #FFFFFF;
+}
+```
+
+All CSS classes and IDs use the `stcm-` prefix to avoid conflicts with your site's styles.
+
 ## License
+
 This project is licensed under the [MIT License](./LICENSE).
 
 ## Contributing
-Contributions are welcome! If you have any suggestions, bug reports, or feature requests, please open an issue or fork this repository and submit a pull request.
 
-Thank you for using the Silktide Consent Manager! We hope it helps you manage cookie consent on your website effectively.
+Contributions are welcome! If you have suggestions, bug reports, or feature requests, please open an issue or submit a pull request.
+
+Created with love by Silktide.
