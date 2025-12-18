@@ -14,6 +14,13 @@ class SilktideConsentManager {
     this._validateConfig(config);
     this.config = config;
 
+    // Set default eventName if not provided
+    this.config.eventName = this.config.eventName || 'stcm_consent_update';
+    
+    // Set default debug mode (false = no console logs in production)
+    // Ensure debug is a boolean, default to false
+    this.config.debug = this.config.debug === true;
+
     this.wrapper = null;
     this.prompt = null;
     this.preferences = null;
@@ -40,11 +47,8 @@ class SilktideConsentManager {
 
     this.setupEventListeners();
 
-    if (this.hasConsented()) {
-      this.loadRequiredConsents();
-      this.runAcceptedConsentCallbacks();
-      this.runRejectedConsentCallbacks();
-    }
+    // Always run consent callbacks on load (handles required consents even on first visit)
+    this.runConsentCallbacksOnLoad();
   }
 
   /**
@@ -552,6 +556,110 @@ class SilktideConsentManager {
         window.silktide(accepted ? 'consent' : 'unconsent');
       }
     }
+
+    // Push generic consent update event to dataLayer for GTM tag triggers
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ 'event': this.config.eventName });
+  }
+
+  /**
+   * Batch update all consents at once
+   * Compares current states against localStorage and only triggers updates if changes detected
+   * @param {Object} consentStates - Object mapping consent type IDs to boolean values
+   * @returns {boolean} - True if any changes were made
+   */
+  batchUpdateConsents(consentStates) {
+    const changes = [];
+    const gtagConsentUpdate = {};
+    let hasChanges = false;
+    let needsReload = false;
+
+    // First pass: identify changes and build gtag consent object
+    this.config.consentTypes.forEach((type) => {
+      const newState = consentStates[type.id];
+      const previousState = this.getConsentChoice(type.id);
+      
+      // Check if this consent actually changed
+      if (newState !== previousState) {
+        hasChanges = true;
+        
+        changes.push({
+          type: type,
+          newState: newState,
+          previousState: previousState
+        });
+
+        // Check if consent was revoked and had scripts
+        const wasRevoked = previousState === true && newState === false;
+        const hadScripts = type.scripts?.length > 0;
+        if (wasRevoked && hadScripts) {
+          needsReload = true;
+        }
+
+        // Build gtag consent parameters
+        if (type.gtag) {
+          const gtagParams = Array.isArray(type.gtag) ? type.gtag : [type.gtag];
+          const consentState = newState ? 'granted' : 'denied';
+          gtagParams.forEach(param => {
+            gtagConsentUpdate[param] = consentState;
+          });
+        }
+      }
+    });
+
+    // If no changes, return early
+    if (!hasChanges) {
+      return false;
+    }
+
+    // Second pass: save to localStorage
+    changes.forEach(({ type, newState }) => {
+      this.setConsentChoice(type.id, newState);
+    });
+
+    // Call gtag once with all consent updates
+    if (Object.keys(gtagConsentUpdate).length > 0 && typeof gtag === 'function') {
+      gtag('consent', 'update', gtagConsentUpdate);
+      if (this.config.debug) {
+        console.log('✓ gtag consent updated (from user action):', gtagConsentUpdate);
+      }
+    } else if (gtagConsentUpdate.analytics_storage) {
+      // Silktide Analytics fallback
+      if (typeof window.silktide === 'function') {
+        const analyticsGranted = gtagConsentUpdate.analytics_storage === 'granted';
+        window.silktide(analyticsGranted ? 'consent' : 'unconsent');
+      }
+    }
+
+    // Fire single GTM event
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ 'event': this.config.eventName });
+    if (this.config.debug) {
+      console.log('▶ GTM Event Sent: ' + this.config.eventName + ' (from user action)');
+    }
+
+    // Third pass: run callbacks and inject scripts
+    changes.forEach(({ type, newState }) => {
+      if (newState) {
+        this._injectConsentScripts(type);
+        if (typeof type.onAccept === 'function') {
+          type.onAccept();
+        }
+      } else {
+        if (typeof type.onReject === 'function') {
+          type.onReject();
+        }
+      }
+    });
+
+    // Reload page if consent was revoked and scripts were injected
+    if (needsReload) {
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+    }
+
+    return true;
   }
 
   // ----------------------------------------------------------------
@@ -566,32 +674,18 @@ class SilktideConsentManager {
     this.toggleModal(false);
     this.showCookieIcon();
 
+    // Build consent states object for all consent types
+    const consentStates = {};
     this.config.consentTypes.forEach((type) => {
-      // Set localStorage and run accept/reject callbacks
       if (type.required) {
-        this.setConsentChoice(type.id, true);
-        this._injectConsentScripts(type);
-        if (typeof type.onAccept === 'function') {
-          type.onAccept();
-        }
+        consentStates[type.id] = true;
       } else {
-        this.setConsentChoice(type.id, accepted);
-
-        // Trigger automatic consent integration
-        this.triggerConsentIntegration(type, accepted);
-
-        if (accepted) {
-          this._injectConsentScripts(type);
-          if (typeof type.onAccept === 'function') {
-            type.onAccept();
-          }
-        } else {
-          if (typeof type.onReject === 'function') {
-            type.onReject();
-          }
-        }
+        consentStates[type.id] = accepted;
       }
     });
+
+    // Use batch update to set all consents at once
+    this.batchUpdateConsents(consentStates);
 
     // Trigger optional onAcceptAll/onRejectAll callbacks
     if (accepted && typeof this.config.onAcceptAll === 'function') {
@@ -621,44 +715,112 @@ class SilktideConsentManager {
    */
   getRejectedConsents() {
     return (this.config.consentTypes || []).reduce((acc, consentType) => {
-      acc[consentType.id] = !this.getConsentChoice(consentType.id);
+      const choice = this.getConsentChoice(consentType.id);
+      // Only return true if explicitly rejected (false), not if no choice made (null)
+      acc[consentType.id] = choice === false;
       return acc;
     }, {});
   }
 
-  runAcceptedConsentCallbacks() {
+  /**
+   * Run all consent callbacks on page load
+   * Builds a single gtag consent object with both accepted and rejected consents
+   * Fires one GTM event only if this is the first consent load
+   */
+  runConsentCallbacksOnLoad() {
     if (!this.config.consentTypes) return;
 
+    // Build a single gtag consent object with both accepted and rejected consents
+    const gtagConsentUpdate = {};
+    let hasGtagUpdates = false;
+    let isFirstConsentLoad = false;
+
     const acceptedConsents = this.getAcceptedConsents();
+    const rejectedConsents = this.getRejectedConsents();
+
+    // Process all consent types and build one comprehensive gtag object
     this.config.consentTypes.forEach((type) => {
-      if (type.required) return; // we run required consents separately in loadRequiredConsents
+      // Handle required consents (always inject scripts and run onAccept)
+      if (type.required) {
+        // Set to localStorage immediately if not already set (prevents duplicate firing)
+        const currentValue = this.getConsentChoice(type.id);
+        if (currentValue === null) {
+          this.setConsentChoice(type.id, true);
+          isFirstConsentLoad = true; // Required consent was just set for first time
+        }
+        
+        this._injectConsentScripts(type);
+        
+        // Add required consents to gtag update (always granted)
+        if (type.gtag) {
+          hasGtagUpdates = true;
+          const gtagParams = Array.isArray(type.gtag) ? type.gtag : [type.gtag];
+          gtagParams.forEach(param => {
+            gtagConsentUpdate[param] = 'granted';
+          });
+        }
+        
+        if (typeof type.onAccept === 'function') {
+          type.onAccept();
+        }
+        return;
+      }
+
+      // Check if accepted
       if (acceptedConsents[type.id]) {
         this._injectConsentScripts(type);
-
-        // Trigger automatic consent integration
-        this.triggerConsentIntegration(type, true);
+        
+        if (type.gtag) {
+          hasGtagUpdates = true;
+          const gtagParams = Array.isArray(type.gtag) ? type.gtag : [type.gtag];
+          gtagParams.forEach(param => {
+            gtagConsentUpdate[param] = 'granted';
+          });
+        }
 
         if (typeof type.onAccept === 'function') {
           type.onAccept();
         }
       }
-    });
-  }
-
-  runRejectedConsentCallbacks() {
-    if (!this.config.consentTypes) return;
-
-    const rejectedConsents = this.getRejectedConsents();
-    this.config.consentTypes.forEach((type) => {
-      if (rejectedConsents[type.id]) {
-        // Trigger automatic consent integration
-        this.triggerConsentIntegration(type, false);
+      // Check if rejected
+      else if (rejectedConsents[type.id]) {
+        if (type.gtag) {
+          hasGtagUpdates = true;
+          const gtagParams = Array.isArray(type.gtag) ? type.gtag : [type.gtag];
+          gtagParams.forEach(param => {
+            gtagConsentUpdate[param] = 'denied';
+          });
+        }
 
         if (typeof type.onReject === 'function') {
           type.onReject();
         }
       }
     });
+
+    // Call gtag ONCE with all consent states (both granted and denied)
+    if (hasGtagUpdates && typeof gtag === 'function') {
+      gtag('consent', 'update', gtagConsentUpdate);
+      if (this.config.debug) {
+        console.log('✓ gtag consent updated (on page load):', gtagConsentUpdate);
+      }
+    } else if (gtagConsentUpdate.analytics_storage && typeof window.silktide === 'function') {
+      // Silktide Analytics fallback
+      const analyticsGranted = gtagConsentUpdate.analytics_storage === 'granted';
+      window.silktide(analyticsGranted ? 'consent' : 'unconsent');
+    }
+
+    // Fire GTM event if we have any granted consents (so GTM tags can trigger)
+    // Check if any consent is granted (not just denied)
+    const hasGrantedConsents = Object.values(gtagConsentUpdate).some(value => value === 'granted');
+    if (hasGtagUpdates && hasGrantedConsents) {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({ 'event': this.config.eventName });
+      if (this.config.debug) {
+        const eventContext = isFirstConsentLoad ? 'from first page load' : 'from return visit';
+        console.log('▶ GTM Event Sent: ' + this.config.eventName + ' (' + eventContext + ')');
+      }
+    }
   }
 
   /**
@@ -683,18 +845,6 @@ class SilktideConsentManager {
       } else {
         if (typeof type.onReject === 'function') {
           type.onReject();
-        }
-      }
-    });
-  }
-
-  loadRequiredConsents() {
-    if (!this.config.consentTypes) return;
-    this.config.consentTypes.forEach((consent) => {
-      if (consent.required) {
-        this._injectConsentScripts(consent);
-        if (typeof consent.onAccept === 'function') {
-          consent.onAccept();
         }
       }
     });
@@ -860,14 +1010,14 @@ class SilktideConsentManager {
     const consentTypes = this.config.consentTypes || [];
     const acceptedConsentMap = this.getAcceptedConsents();
 
-    // Accept button
-    const acceptAllButtonText = this.config.text?.prompt?.acceptAllButtonText || 'Accept all';
-    const acceptAllButtonLabel = this.config.text?.prompt?.acceptAllButtonAccessibleLabel;
-    const acceptAllButton = `<button class="stcm-modal-accept-all stcm-button stcm-button-primary"${
-      acceptAllButtonLabel && acceptAllButtonLabel !== acceptAllButtonText
-        ? ` aria-label="${acceptAllButtonLabel}"`
+    // Save button
+    const saveButtonText = this.config.text?.preferences?.saveButtonText || 'Save and close';
+    const saveButtonLabel = this.config.text?.preferences?.saveButtonAccessibleLabel;
+    const saveButton = `<button class="stcm-modal-save stcm-button stcm-button-primary"${
+      saveButtonLabel && saveButtonLabel !== saveButtonText
+        ? ` aria-label="${saveButtonLabel}"`
         : ''
-    }>${acceptAllButtonText}</button>`;
+    }>${saveButtonText}</button>`;
 
     // Reject button
     const rejectNonEssentialButtonText = this.config.text?.prompt?.rejectNonEssentialButtonText || 'Reject non-essential';
@@ -932,7 +1082,7 @@ class SilktideConsentManager {
           .join('')}
       </section>
       <footer>
-        ${acceptAllButton}
+        ${saveButton}
         ${rejectNonEssentialButton}
         ${creditLink}
       </footer>
@@ -968,21 +1118,7 @@ class SilktideConsentManager {
 
       this.updateCheckboxState(false); // read from storage when opening
     } else {
-      // Set that an initial choice was made when closing the modal
-      this.setHasConsented();
-
-      // Save current checkbox states to storage
-      this.updateCheckboxState(true);
-
-      // Reload page if consent was revoked and scripts were injected
-      if (this._needsReload) {
-        this._needsReload = false;
-        setTimeout(() => {
-          window.location.reload();
-        }, 100);
-        return;
-      }
-
+      // Close the modal without saving anything - saving is handled by the "Save and Close" and "Reject All" buttons only
       this.hideBackdrop();
       this.showCookieIcon();
       this.allowBodyScroll();
@@ -1154,24 +1290,76 @@ class SilktideConsentManager {
     // Check Preferences exists before trying to add event listeners
     if (this.preferences) {
       const closeButton = this.preferences.querySelector('.stcm-modal-close');
-      const acceptAllButton = this.preferences.querySelector('.stcm-modal-accept-all');
+      const saveButton = this.preferences.querySelector('.stcm-modal-save');
       const rejectAllButton = this.preferences.querySelector('.stcm-modal-reject-all');
 
+      // Close button - only closes modal, doesn't save or fire events
       closeButton?.addEventListener('click', () => {
         this.toggleModal(false);
-
-        const hasMadeFirstChoice = this.hasConsented();
-
-        if (hasMadeFirstChoice) {
-          // run through the callbacks based on the current localStorage state
-          this.runStoredConsentCallbacks();
-        } else {
-          // handle the case where the user closes without making a choice for the first time
-          this.handleDefaultConsent();
-        }
+        this.hideBackdrop();
+        
+        // If user hasn't made initial choice, show prompt again next time
+        // Otherwise, just close without doing anything
       });
-      acceptAllButton?.addEventListener('click', () => this.handleConsentChoice(true));
-      rejectAllButton?.addEventListener('click', () => this.handleConsentChoice(false));
+
+      // Save button - reads checkbox states and batch updates
+      saveButton?.addEventListener('click', () => {
+        // We set that an initial choice was made
+        this.setHasConsented();
+
+        // Read current checkbox states from the modal
+        const preferencesSection = this.preferences.querySelector('#stcm-form');
+        const checkboxes = preferencesSection.querySelectorAll('input[type="checkbox"]');
+        const consentStates = {};
+
+        checkboxes.forEach(checkbox => {
+          const [, consentId] = checkbox.id.split('consent-');
+          consentStates[consentId] = checkbox.checked;
+        });
+
+        // Use batch update to set all consents at once (only fires if changes detected)
+        this.batchUpdateConsents(consentStates);
+
+        // Close modal and show icon
+        this.toggleModal(false);
+        this.hideBackdrop();
+        this.removeBanner();
+        this.showCookieIcon();
+      });
+
+      // Reject All button - sets required to true, all others to false, then batch updates
+      rejectAllButton?.addEventListener('click', () => {
+        // We set that an initial choice was made
+        this.setHasConsented();
+
+        // First, update the checkbox UI to reflect rejection
+        const preferencesSection = this.preferences.querySelector('#stcm-form');
+        const checkboxes = preferencesSection.querySelectorAll('input[type="checkbox"]');
+        
+        checkboxes.forEach(checkbox => {
+          const [, consentId] = checkbox.id.split('consent-');
+          const consentType = this.config.consentTypes.find(type => type.id === consentId);
+          
+          if (consentType && !consentType.required) {
+            checkbox.checked = false;
+          }
+        });
+
+        // Build consent states: required = true, optional = false
+        const consentStates = {};
+        this.config.consentTypes.forEach((type) => {
+          consentStates[type.id] = type.required ? true : false;
+        });
+
+        // Use batch update to set all consents at once
+        this.batchUpdateConsents(consentStates);
+
+        // Close modal and show icon
+        this.toggleModal(false);
+        this.hideBackdrop();
+        this.removeBanner();
+        this.showCookieIcon();
+      });
 
       // Preferences Focus Trap
       const focusableElements = this.getFocusableElements(this.preferences);
@@ -1199,54 +1387,8 @@ class SilktideConsentManager {
 
       closeButton?.focus();
 
-      // Update the checkbox event listeners
-      const preferencesSection = this.preferences.querySelector('#stcm-form');
-      const checkboxes = preferencesSection.querySelectorAll('input[type="checkbox"]');
-
-      checkboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', (event) => {
-          const [, consentId] = event.target.id.split('consent-');
-          const isAccepted = event.target.checked;
-          const previousValue = this.getConsentChoice(consentId);
-
-          // Only proceed if the value has actually changed
-          if (isAccepted !== previousValue) {
-            // Find the corresponding consent type
-            const consentType = this.config.consentTypes.find(type => type.id === consentId);
-
-            if (consentType) {
-              // Check if consent was revoked (and had scripts)
-              const wasRevoked = this._wasConsentRevoked(consentId, isAccepted);
-              const hadScripts = consentType.scripts?.length > 0;
-
-              // Update localStorage
-              this.setConsentChoice(consentId, isAccepted);
-
-              // Trigger automatic consent integration
-              this.triggerConsentIntegration(consentType, isAccepted);
-
-              // Run the appropriate callback only if the value changed
-              if (isAccepted) {
-                this._injectConsentScripts(consentType);
-                if (typeof consentType.onAccept === 'function') {
-                  consentType.onAccept();
-                }
-              } else {
-                if (typeof consentType.onReject === 'function') {
-                  consentType.onReject();
-                }
-              }
-
-              // Reload page if consent was revoked and scripts were injected
-              if (wasRevoked && hadScripts) {
-                setTimeout(() => {
-                  window.location.reload();
-                }, 100);
-              }
-            }
-          }
-        });
-      });
+      // Note: Checkboxes no longer trigger immediate consent updates
+      // Users can toggle them freely, and consent is only updated when clicking "Save and Close"
     }
 
     // Check Icon exists before trying to add event listeners
