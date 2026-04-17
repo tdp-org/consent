@@ -989,7 +989,16 @@ class SilktideConsentManager {
     const consentTypes = this.config.consentTypes || [];
     const acceptedConsentMap = this.getAcceptedConsents();
 
-    // Save button
+        // Accept button
+    const acceptAllButtonText = this.config.text?.prompt?.acceptAllButtonText || 'Accept all';
+    const acceptAllButtonLabel = this.config.text?.prompt?.acceptAllButtonAccessibleLabel;
+    const acceptAllButton = `<button class="stcm-accept-all stcm-button stcm-button-primary"${
+      acceptAllButtonLabel && acceptAllButtonLabel !== acceptAllButtonText
+        ? ` aria-label="${acceptAllButtonLabel}"`
+        : ''
+    }>${acceptAllButtonText}</button>`;
+
+        // Save button
     const saveButtonText = this.config.text?.preferences?.saveButtonText || 'Save and close';
     const saveButtonLabel = this.config.text?.preferences?.saveButtonAccessibleLabel;
     const saveButton = `<button class="stcm-modal-save stcm-button stcm-button-primary"${
@@ -997,7 +1006,7 @@ class SilktideConsentManager {
         ? ` aria-label="${saveButtonLabel}"`
         : ''
     }>${saveButtonText}</button>`;
-
+    
     const modalContent = `
       <header>
         <h1>${preferencesTitle}</h1>
@@ -1041,6 +1050,7 @@ class SilktideConsentManager {
           .join('')}
       </section>
       <footer>
+      ${acceptAllButton}
         ${saveButton}
       </footer>
     `;
